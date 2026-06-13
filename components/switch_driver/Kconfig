@@ -1,0 +1,15 @@
+menu "Shelf GPIO Configuration"
+    config GPIO_BOOT_ON_DEVKIT
+        int "BOOT GPIO on devkit"
+        default 9 if IDF_TARGET_ESP32C6
+        default 9
+        help
+            GPIO connected to the BOOT button used as shelf button surrogate.
+
+    config GPIO_STATUS_LED_ON_DEVKIT
+        int "RGB status LED GPIO on devkit"
+        default 8 if IDF_TARGET_ESP32C6
+        default 8
+        help
+            GPIO for the onboard WS2812 RGB LED (ESP32-C6-DevKitC-1 uses GPIO8).
+endmenu

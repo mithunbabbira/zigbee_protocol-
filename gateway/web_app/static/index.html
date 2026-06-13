@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shelf Master</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --text: #e8eef7;
+      --muted: #8fa3bf;
+      --on: #3dd68c;
+      --off: #4b5563;
+      --accent: #4f8cff;
+      --danger: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: linear-gradient(180deg, #0b1020, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 8px; font-size: 1.8rem; }
+    .sub { color: var(--muted); margin-bottom: 24px; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .stat-value { font-size: 2rem; font-weight: 700; }
+    .stat-label { color: var(--muted); font-size: 0.9rem; }
+    .toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: white;
+    }
+    button.secondary { background: #2a3648; color: var(--text); }
+    button.danger { background: var(--danger); }
+    .nodes { display: grid; gap: 12px; }
+    .node {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 12px;
+      align-items: center;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 16px 18px;
+    }
+    .node.offline { opacity: 0.55; }
+    .addr { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 1.05rem; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge.on { background: rgba(61,214,140,0.15); color: var(--on); }
+    .badge.off { background: rgba(75,85,99,0.25); color: #cbd5e1; }
+    .badge.offline { background: rgba(255,107,107,0.12); color: var(--danger); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 12px currentColor;
+    }
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 48px 16px;
+      border: 1px dashed rgba(255,255,255,0.12);
+      border-radius: 14px;
+    }
+    .status-pill {
+      display: inline-block;
+      margin-left: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .live { color: var(--on); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Shelf Master <span class="status-pill" id="live">connecting...</span></h1>
+    <p class="sub">Live view of Zigbee shelf nodes. Button presses on a shelf update here automatically.</p>
+
+    <div class="stats">
+      <div class="card">
+        <div class="stat-value" id="count">0</div>
+        <div class="stat-label">Shelves connected</div>
+      </div>
+      <div class="card">
+        <div class="stat-value" id="on-count">0</div>
+        <div class="stat-label">Lights ON</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button onclick="setGroup(1)">All ON</button>
+      <button class="secondary" onclick="setGroup(0)">All OFF</button>
+      <button class="secondary" onclick="refresh()">Refresh</button>
+    </div>
+
+    <div class="nodes" id="nodes">
+      <div class="empty">Waiting for shelves to join the coordinator...</div>
+    </div>
+  </div>
+
+  <script>
+    const nodesEl = document.getElementById('nodes');
+    const countEl = document.getElementById('count');
+    const onCountEl = document.getElementById('on-count');
+    const liveEl = document.getElementById('live');
+
+    function render(data) {
+      if (data.serial_connected === false) {
+        liveEl.textContent = 'coordinator not on USB — plug coordinator board into Mac (not shelf)';
+        liveEl.className = 'status-pill';
+      } else {
+        liveEl.textContent = 'live';
+        liveEl.className = 'status-pill live';
+      }
+
+      const nodes = data.nodes || [];
+      const onlineNodes = nodes.filter(n => n.online);
+      countEl.textContent = data.connected_count ?? onlineNodes.length;
+      onCountEl.textContent = onlineNodes.filter(n => n.state === 1).length;
+
+      if (!nodes.length) {
+        nodesEl.innerHTML = '<div class="empty">No shelves discovered yet. Power on shelf boards near the coordinator.</div>';
+        return;
+      }
+
+      nodesEl.innerHTML = nodes.map(node => `
+        <div class="node ${node.online ? '' : 'offline'}">
+          <div>
+            <div class="addr">${node.addr}</div>
+            <div class="stat-label">${node.online ? 'Shelf router' : 'Offline — not on network'}</div>
+          </div>
+          <span class="badge ${node.online ? (node.state ? 'on' : 'off') : 'offline'}">
+            <span class="dot"></span>${node.online ? (node.state ? 'ON' : 'OFF') : 'OFFLINE'}
+          </span>
+          <button ${node.online ? '' : 'disabled'} onclick="setNode('${node.addr}', 1)">ON</button>
+          <button class="danger" ${node.online ? '' : 'disabled'} onclick="setNode('${node.addr}', 0)">OFF</button>
+        </div>
+      `).join('');
+    }
+
+    async function refresh() {
+      liveEl.textContent = 'scanning...';
+      liveEl.className = 'status-pill';
+      const res = await fetch('/api/scan', { method: 'POST' });
+      render(await res.json());
+    }
+
+    async function setNode(addr, state) {
+      await fetch(`/api/nodes/${encodeURIComponent(addr)}/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      });
+    }
+
+    async function setGroup(state) {
+      await fetch('/api/group/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      });
+    }
+
+    function connectEvents() {
+      const source = new EventSource('/api/events');
+      source.onopen = () => {
+        liveEl.textContent = 'live';
+        liveEl.className = 'status-pill live';
+      };
+      source.onmessage = (event) => {
+        render(JSON.parse(event.data));
+      };
+      source.onerror = () => {
+        liveEl.textContent = 'reconnecting...';
+        liveEl.className = 'status-pill';
+        source.close();
+        setTimeout(connectEvents, 2000);
+      };
+    }
+
+    refresh();
+    connectEvents();
+  </script>
+</body>
+</html>
