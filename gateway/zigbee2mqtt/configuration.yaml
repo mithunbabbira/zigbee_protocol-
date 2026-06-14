@@ -21,8 +21,7 @@ advanced:
     passive:
       timeout: 15
 frontend:
-  enabled: true
-  port: 8081
+  enabled: false
 homeassistant:
   enabled: false
 permit_join: true

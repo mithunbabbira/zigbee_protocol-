@@ -38,6 +38,6 @@ if ! lsof -i :1883 >/dev/null 2>&1; then
   sleep 1
 fi
 
-echo "Starting Zigbee2MQTT (frontend http://localhost:8081)..."
+echo "Starting Zigbee2MQTT (headless — use http://localhost:8080 for the UI)..."
 export ZIGBEE2MQTT_DATA="${DATA}"
 cd "${RUNTIME}" && npm start

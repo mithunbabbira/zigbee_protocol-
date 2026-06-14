@@ -19,12 +19,15 @@ from typing import Any
 
 import paho.mqtt.client as mqtt
 
+from shelf_registry import ShelfRegistry
+
 DEFAULT_MQTT_HOST = "127.0.0.1"
 DEFAULT_MQTT_PORT = 1883
 DEFAULT_TOPIC_PREFIX = "zigbee2mqtt"
 DEFAULT_GROUP_FRIENDLY_NAME = "shelves"
 DEFAULT_SHELF_ENDPOINT = "10"
 COMMAND_SPACING_SECONDS = 0.4
+OUTBOUND_ECHO_WINDOW_SECONDS = 2.0
 
 
 def normalize_ieee_address(value: str | None) -> str | None:
@@ -94,6 +97,8 @@ class Zigbee2MqttBridge:
         self._availability_by_ieee: dict[str, bool] = {}
         # IEEE addresses of interviewed SHELF-NODE devices only (not stale Z2M pairings).
         self._registered_shelf_ieee: set[str] = set()
+        self._registry = ShelfRegistry()
+        self._last_outbound_command: dict[str, tuple[int, float]] = {}
 
         self.mqtt_connected = False
         self.mqtt_error = ""
@@ -142,22 +147,30 @@ class Zigbee2MqttBridge:
                 key=lambda node: node.ieee_address,
             )
             online_nodes = [node for node in nodes if node.is_online]
-            return {
-                "backend": "zigbee2mqtt",
-                "serial_connected": self.mqtt_connected and self.coordinator_online,
-                "coordinator_port": f"mqtt://{self.mqtt_host}:{self.mqtt_port}",
-                "serial_error": self.mqtt_error,
-                "connected_count": len(online_nodes),
-                "nodes": [
+            total_presses = 0
+            node_rows = []
+            for node in nodes:
+                row = self._registry.enrich(
+                    node.ieee_address,
                     {
                         "addr": node.ieee_address,
                         "friendly_name": node.friendly_name,
                         "state": node.power_state,
                         "online": node.is_online,
                         "last_seen": node.last_seen_monotonic,
-                    }
-                    for node in nodes
-                ],
+                    },
+                )
+                total_presses += row["press_count"]
+                node_rows.append(row)
+            node_rows.sort(key=lambda row: row["shelf_id"])
+            return {
+                "backend": "zigbee2mqtt",
+                "serial_connected": self.mqtt_connected and self.coordinator_online,
+                "coordinator_port": f"mqtt://{self.mqtt_host}:{self.mqtt_port}",
+                "serial_error": self.mqtt_error,
+                "connected_count": len(online_nodes),
+                "total_press_count": total_presses,
+                "nodes": node_rows,
             }
 
     def run_node_scan(self, wait_seconds: float = 3.0) -> None:
@@ -174,6 +187,8 @@ class Zigbee2MqttBridge:
     def set_node_state(self, ieee_address: str, power_state: int) -> None:
         if not self.mqtt_connected:
             raise RuntimeError("MQTT broker is not connected")
+        normalized = normalize_ieee_address(ieee_address) or ieee_address
+        self._last_outbound_command[normalized] = (power_state, time.monotonic())
         friendly_name = self._resolve_friendly_name(ieee_address)
         payload = json.dumps({"state_light": "ON" if power_state else "OFF"})
         self._publish_device_set(friendly_name, payload)
@@ -181,8 +196,16 @@ class Zigbee2MqttBridge:
     def set_group_state(self, power_state: int) -> None:
         if not self.mqtt_connected:
             raise RuntimeError("MQTT broker is not connected")
+        now = time.monotonic()
+        with self._state_lock:
+            for ieee in self._registered_shelf_ieee:
+                self._last_outbound_command[ieee] = (power_state, now)
         payload = json.dumps({"state_light": "ON" if power_state else "OFF"})
         self._publish_device_set(self.group_friendly_name, payload)
+
+    def clear_press_counts(self, ieee_address: str | None = None) -> None:
+        self._registry.clear_press_counts(ieee_address)
+        self._notify_subscribers()
 
     def permit_join(self, duration_seconds: int = 180) -> None:
         if not self.mqtt_connected:
@@ -289,6 +312,7 @@ class Zigbee2MqttBridge:
 
                 seen_shelf_ieee.add(ieee_address)
                 self._registered_shelf_ieee.add(ieee_address)
+                self._registry.ensure_node(ieee_address)
                 friendly_name = str(device_record.get("friendly_name") or ieee_address)
                 node = self._nodes_by_ieee.get(ieee_address)
                 if node is None:
@@ -337,6 +361,7 @@ class Zigbee2MqttBridge:
             friendly_name = str(data.get("friendly_name") or ieee_address)
             with self._state_lock:
                 self._registered_shelf_ieee.add(ieee_address)
+                self._registry.ensure_node(ieee_address)
                 node = self._nodes_by_ieee.get(ieee_address)
                 if node is None:
                     node = ShelfNode(ieee_address=ieee_address, friendly_name=friendly_name, is_online=True)
@@ -401,10 +426,24 @@ class Zigbee2MqttBridge:
                 self._nodes_by_ieee[ieee_address] = node
                 self._ieee_by_friendly_name[friendly_name] = ieee_address
             else:
+                previous_state = node.power_state
                 node.power_state = power_state
                 node.friendly_name = friendly_name
+                if self._is_button_press(ieee_address, previous_state, power_state):
+                    self._registry.record_button_press(ieee_address)
             node.last_seen_monotonic = now
         self._notify_subscribers()
+
+    def _is_button_press(self, ieee_address: str, previous_state: int, new_state: int) -> bool:
+        if previous_state == new_state:
+            return False
+        command = self._last_outbound_command.get(ieee_address)
+        if command is None:
+            return True
+        commanded_state, sent_at = command
+        if time.monotonic() - sent_at <= OUTBOUND_ECHO_WINDOW_SECONDS and commanded_state == new_state:
+            return False
+        return True
 
     # ------------------------------------------------------------------
     # Helpers

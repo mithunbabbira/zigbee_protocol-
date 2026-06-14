@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from mqtt_bridge import Zigbee2MqttBridge, normalize_ieee_address, parse_on_off_state
+from mqtt_bridge import ShelfNode, Zigbee2MqttBridge, normalize_ieee_address, parse_on_off_state
 
 
 class TestZigbee2MqttBridge(unittest.TestCase):
@@ -28,12 +28,14 @@ class TestZigbee2MqttBridge(unittest.TestCase):
                     "type": "EndDevice",
                     "interview_completed": True,
                     "disabled": False,
+                    "definition": {"model": "SHELF-NODE", "vendor": "SHELF_MGMT"},
                 },
             ]
         )
         snapshot = bridge.snapshot()
         self.assertEqual(len(snapshot["nodes"]), 1)
         self.assertEqual(snapshot["nodes"][0]["addr"], "0x1051dbfffe1c4a78")
+        self.assertEqual(snapshot["nodes"][0]["shelf_id"], 1)
         self.assertTrue(snapshot["nodes"][0]["online"])
 
     def test_availability_topic_marks_device_online(self) -> None:
@@ -46,6 +48,7 @@ class TestZigbee2MqttBridge(unittest.TestCase):
                     "type": "EndDevice",
                     "interview_completed": True,
                     "disabled": False,
+                    "definition": {"model": "SHELF-NODE", "vendor": "SHELF_MGMT"},
                 },
             ]
         )
@@ -61,7 +64,7 @@ class TestZigbee2MqttBridge(unittest.TestCase):
         bridge.set_group_state(power_state=1)
         self.assertEqual(published[0][0], "zigbee2mqtt/shelves/set")
 
-    def test_not_supported_end_device_still_marked_online(self) -> None:
+    def test_unsupported_end_device_is_ignored(self) -> None:
         bridge = Zigbee2MqttBridge()
         bridge._ingest_device_list(
             [
@@ -75,7 +78,22 @@ class TestZigbee2MqttBridge(unittest.TestCase):
             ]
         )
         snapshot = bridge.snapshot()
-        self.assertTrue(snapshot["nodes"][0]["online"])
+        self.assertEqual(snapshot["nodes"], [])
+
+    def test_button_press_increments_count(self) -> None:
+        bridge = Zigbee2MqttBridge()
+        ieee = "0x1051dbfffe1c4a78"
+        bridge._registered_shelf_ieee.add(ieee)
+        bridge._nodes_by_ieee[ieee] = ShelfNode(
+            ieee_address=ieee, friendly_name=ieee, power_state=0, is_online=True
+        )
+        bridge._registry.ensure_node(ieee)
+        bridge._update_device_power_state(ieee, {"state_light": "ON"})
+        snapshot = bridge.snapshot()
+        self.assertEqual(snapshot["nodes"][0]["press_count"], 1)
+        bridge._update_device_power_state(ieee, {"state_light": "OFF"})
+        snapshot = bridge.snapshot()
+        self.assertEqual(snapshot["nodes"][0]["press_count"], 2)
 
     def test_ensure_shelf_device_ready_requests_group_and_configure(self) -> None:
         bridge = Zigbee2MqttBridge(group_friendly_name="shelves")

@@ -41,11 +41,11 @@ if ! lsof -i :1883 >/dev/null 2>&1; then
 fi
 
 if ! pgrep -f "zigbee2mqtt.*/index.js" >/dev/null 2>&1; then
-  echo "Starting Zigbee2MQTT (http://localhost:8081)..."
+  echo "Starting Zigbee2MQTT (headless)..."
   (cd "${ROOT}" && ./scripts/run_zigbee2mqtt_native.sh) &
   sleep 8
 else
-  echo "Zigbee2MQTT already running (http://localhost:8081)"
+  echo "Zigbee2MQTT already running"
 fi
 
 if [[ -n "${SHELF_PORT}" ]]; then
@@ -53,5 +53,5 @@ if [[ -n "${SHELF_PORT}" ]]; then
 fi
 
 export SHELF_BACKEND=mqtt
-echo "Starting web UI (http://localhost:8080) with MQTT backend..."
+echo "Shelf Master UI: http://localhost:8080"
 exec "${ROOT}/scripts/run_web_master.sh"

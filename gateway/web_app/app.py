@@ -32,6 +32,7 @@ from protocol import (  # noqa: E402
     normalize_ieee_address,
     parse_gateway_line,
 )
+from shelf_registry import ShelfRegistry  # noqa: E402
 
 try:
     from mqtt_bridge import MqttBridge  # noqa: E402
@@ -115,6 +116,7 @@ class SerialBridge:
         self.serial_error = ""
         self._scan_in_progress = False
         self._scan_seen_addrs: set[str] = set()
+        self._registry = ShelfRegistry()
 
     def request_node_scan(self) -> None:
         try:
@@ -205,21 +207,29 @@ class SerialBridge:
 
     def snapshot(self) -> dict[str, Any]:
         nodes = sorted(self._nodes.values(), key=lambda n: n.addr)
+        rows = []
+        total_presses = 0
+        for node in nodes:
+            row = self._registry.enrich(
+                node.addr,
+                {
+                    "addr": node.addr,
+                    "state": node.state,
+                    "online": node.online,
+                    "last_seen": node.last_seen,
+                },
+            )
+            total_presses += row["press_count"]
+            rows.append(row)
+        rows.sort(key=lambda row: row["shelf_id"])
         return {
             "backend": "serial",
             "serial_connected": self.serial_connected,
             "coordinator_port": self.port,
             "serial_error": self.serial_error,
             "connected_count": sum(1 for n in nodes if n.online),
-            "nodes": [
-                {
-                    "addr": n.addr,
-                    "state": n.state,
-                    "online": n.online,
-                    "last_seen": n.last_seen,
-                }
-                for n in nodes
-            ],
+            "total_press_count": total_presses,
+            "nodes": rows,
         }
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
@@ -261,6 +271,10 @@ class SerialBridge:
         for node in list(self._nodes.values()):
             if node.online:
                 self.set_node_state(node.addr, state)
+
+    def clear_press_counts(self, ieee_address: str | None = None) -> None:
+        self._registry.clear_press_counts(ieee_address)
+        self._publish()
 
     def _heartbeat_watchdog(self) -> None:
         """Mark nodes offline when no heartbeat/state for 90 s."""
@@ -313,6 +327,7 @@ class SerialBridge:
             else:
                 node.online = True
                 node.last_seen = now
+            self._registry.ensure_node(ieee)
         elif event.kind == "leave":
             ieee = normalize_ieee_address(event.addr) or event.addr
             node = self._nodes.get(ieee)
@@ -329,6 +344,7 @@ class SerialBridge:
                 node.state = 1 if node.state == 0 else 0
                 node.online = True
                 node.last_seen = now
+            self._registry.record_button_press(ieee)
         elif event.kind == "heartbeat":
             ieee = normalize_ieee_address(event.addr) or event.addr
             node = self._nodes.get(ieee)
@@ -436,6 +452,13 @@ async def api_set_group_state(body: GroupStateBody) -> dict[str, Any]:
         bridge.set_group_state(body.state)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return bridge.snapshot()
+
+
+@app.post("/api/press-counts/clear")
+async def api_clear_press_counts() -> dict[str, Any]:
+    assert bridge is not None
+    bridge.clear_press_counts()
     return bridge.snapshot()
 
 

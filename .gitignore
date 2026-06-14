@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 gateway/zigbee2mqtt-runtime/
 gateway/zigbee2mqtt/external_converters/node_modules
+gateway/web_app/data/
 gateway/zigbee2mqtt/log.log
 gateway/zigbee2mqtt/log/
 gateway/zigbee2mqtt/coordinator_backup.json
