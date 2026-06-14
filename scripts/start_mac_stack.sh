@@ -53,5 +53,5 @@ if [[ -n "${SHELF_PORT}" ]]; then
 fi
 
 export SHELF_BACKEND=mqtt
-echo "Shelf Master UI: http://localhost:8080"
+echo "Shelf Master UI: https://localhost:8080 (phone QR scan needs this HTTPS URL)"
 exec "${ROOT}/scripts/run_web_master.sh"

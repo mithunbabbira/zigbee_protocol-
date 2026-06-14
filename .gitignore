@@ -16,3 +16,4 @@ gateway/zigbee2mqtt/coordinator_backup.json
 gateway/zigbee2mqtt/state.json
 gateway/zigbee2mqtt/database.db
 gateway/zigbee2mqtt/migration-*.log
+gateway/web_app/certs/

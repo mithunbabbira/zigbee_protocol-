@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WEB_PORT="${2:-8080}"
 BACKEND="${SHELF_BACKEND:-mqtt}"
 
+"${ROOT}/scripts/ensure_dev_ssl.sh"
+
 python3 -m pip install -q -r "${ROOT}/gateway/requirements.txt"
 
 ARGS=(--backend "${BACKEND}" --web-port "${WEB_PORT}")

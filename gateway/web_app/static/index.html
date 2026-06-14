@@ -2,8 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <title>Shelf Master</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     :root {
       color-scheme: light dark;
@@ -16,6 +19,8 @@
       --accent: #4f8cff;
       --danger: #ff6b6b;
       --border: rgba(255,255,255,0.08);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
     * { box-sizing: border-box; }
     body {
@@ -112,39 +117,258 @@
       color: var(--muted);
     }
     .live { color: var(--on); }
+
+    /* Mobile put-to-light view */
+    .mobile-only { display: none; }
+    .mobile-wrap {
+      min-height: 100vh;
+      padding: calc(16px + var(--safe-top)) 20px calc(24px + var(--safe-bottom));
+      max-width: 480px;
+      margin: 0 auto;
+    }
+    .mobile-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 28px;
+    }
+    .mobile-header h1 {
+      font-size: 1.45rem;
+      margin: 0;
+    }
+    .mobile-hero {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .mobile-hero p {
+      color: var(--muted);
+      margin: 8px 0 0;
+      line-height: 1.5;
+      font-size: 0.95rem;
+    }
+    .scan-btn {
+      width: 100%;
+      padding: 18px 20px;
+      font-size: 1.15rem;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 8px 24px rgba(79, 140, 255, 0.35);
+    }
+    .scan-btn svg { flex-shrink: 0; }
+    .mobile-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .mobile-stats .card { padding: 14px; text-align: center; }
+    .mobile-stats .stat-value { font-size: 1.6rem; }
+    .last-scan {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 14px;
+      background: rgba(61, 214, 140, 0.12);
+      border: 1px solid rgba(61, 214, 140, 0.35);
+      display: none;
+    }
+    .last-scan.visible { display: block; }
+    .last-scan .label { color: var(--muted); font-size: 0.85rem; margin-bottom: 6px; }
+    .last-scan .ieee {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.9rem;
+      word-break: break-all;
+    }
+    .last-scan .result { color: var(--on); font-weight: 700; margin-top: 8px; }
+    .network-hint {
+      margin-top: 24px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .network-hint code {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: var(--accent);
+      word-break: break-all;
+    }
+    .secure-warning {
+      margin-bottom: 20px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(255, 107, 107, 0.12);
+      border: 1px solid rgba(255, 107, 107, 0.45);
+      color: #ffb4b4;
+      font-size: 0.9rem;
+      line-height: 1.45;
+      display: none;
+    }
+    .secure-warning.visible { display: block; }
+    .secure-warning strong { color: #fff; }
+    .secure-warning a { color: #9ec5ff; }
+
+    /* QR scanner overlay */
+    .scanner-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: #000;
+      flex-direction: column;
+    }
+    .scanner-overlay.open { display: flex; }
+    .scanner-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: calc(12px + var(--safe-top)) 16px 12px;
+      background: rgba(0,0,0,0.85);
+      color: #fff;
+    }
+    .scanner-top h2 { margin: 0; font-size: 1.1rem; }
+    .scanner-close {
+      background: rgba(255,255,255,0.15);
+      color: #fff;
+      padding: 8px 14px;
+      border-radius: 8px;
+    }
+    #qr-reader {
+      flex: 1;
+      min-height: 0;
+    }
+    #qr-reader video {
+      object-fit: cover !important;
+    }
+    .scanner-hint {
+      padding: 14px 20px calc(18px + var(--safe-bottom));
+      text-align: center;
+      color: rgba(255,255,255,0.75);
+      font-size: 0.9rem;
+      background: rgba(0,0,0,0.85);
+    }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(24px + var(--safe-bottom));
+      transform: translateX(-50%) translateY(120%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 14px 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+      z-index: 1100;
+      max-width: calc(100vw - 40px);
+      text-align: center;
+      transition: transform 0.25s ease;
+      font-size: 0.95rem;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { border-color: rgba(255, 107, 107, 0.5); color: #ffb4b4; }
+
+    @media (max-width: 768px) {
+      .desktop-only { display: none !important; }
+      .mobile-only { display: block; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Shelf Master <span class="status-pill" id="live">connecting...</span></h1>
-    <p class="sub">Spreadsheet view of connected shelf nodes. Press the ESP32-C6 button to increment the count.</p>
+  <!-- Desktop spreadsheet view -->
+  <div class="desktop-only">
+    <div class="wrap">
+      <h1>Shelf Master <span class="status-pill" id="live">connecting...</span></h1>
+      <p class="sub">Spreadsheet view of connected shelf nodes. Press the ESP32-C6 button to increment the count.</p>
 
-    <div class="stats">
-      <div class="card">
-        <div class="stat-value" id="count">0</div>
-        <div class="stat-label">Shelves connected</div>
+      <div class="stats">
+        <div class="card">
+          <div class="stat-value" id="count">0</div>
+          <div class="stat-label">Shelves connected</div>
+        </div>
+        <div class="card">
+          <div class="stat-value" id="press-total">0</div>
+          <div class="stat-label">Total button presses</div>
+        </div>
+        <div class="card">
+          <div class="stat-value" id="on-count">0</div>
+          <div class="stat-label">Lights ON</div>
+        </div>
       </div>
-      <div class="card">
-        <div class="stat-value" id="press-total">0</div>
-        <div class="stat-label">Total button presses</div>
-      </div>
-      <div class="card">
-        <div class="stat-value" id="on-count">0</div>
-        <div class="stat-label">Lights ON</div>
-      </div>
-    </div>
 
-    <div class="toolbar">
-      <button onclick="setGroup(1)">All ON</button>
-      <button class="secondary" onclick="setGroup(0)">All OFF</button>
-      <button class="secondary" onclick="refresh()">Refresh</button>
-      <button class="danger" onclick="clearPressCounts()">Clear counts</button>
-    </div>
+      <div class="toolbar">
+        <button onclick="setGroup(1)">All ON</button>
+        <button class="secondary" onclick="setGroup(0)">All OFF</button>
+        <button class="secondary" onclick="refresh()">Refresh</button>
+        <button class="danger" onclick="clearPressCounts()">Clear counts</button>
+      </div>
 
-    <div class="table-wrap" id="table-wrap">
-      <div class="empty">Waiting for shelves to join the coordinator...</div>
+      <div class="table-wrap" id="table-wrap">
+        <div class="empty">Waiting for shelves to join the coordinator...</div>
+      </div>
     </div>
   </div>
+
+  <!-- Mobile put-to-light view -->
+  <div class="mobile-only">
+    <div class="mobile-wrap">
+      <div class="mobile-header">
+        <h1>Shelf Master</h1>
+        <span class="status-pill" id="live-mobile">connecting...</span>
+      </div>
+
+      <div class="secure-warning" id="secure-warning">
+        <strong>Camera blocked on HTTP.</strong> Open this app with
+        <a id="https-link" href="#">HTTPS</a> on your phone (same Wi‑Fi).
+        Tap Advanced → Proceed to accept the dev certificate, then allow camera.
+      </div>
+
+      <div class="mobile-hero">
+        <button class="scan-btn" id="scan-btn" onclick="openScanner()">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+            <rect x="7" y="7" width="10" height="10" rx="1"/>
+          </svg>
+          Scan QR
+        </button>
+        <p>Scan the ESP32-C6 QR code on a shelf to turn on its light.</p>
+      </div>
+
+      <div class="last-scan" id="last-scan">
+        <div class="label">Last scan</div>
+        <div class="ieee" id="last-scan-ieee"></div>
+        <div class="result" id="last-scan-result"></div>
+      </div>
+
+      <div class="mobile-stats">
+        <div class="card">
+          <div class="stat-value" id="count-mobile">0</div>
+          <div class="stat-label">Connected</div>
+        </div>
+        <div class="card">
+          <div class="stat-value" id="on-count-mobile">0</div>
+          <div class="stat-label">Lights ON</div>
+        </div>
+      </div>
+
+      <p class="network-hint">
+        Phone URL: <code id="mobile-url">loading…</code><br>
+        Use Safari or Chrome (not an in-app browser). Allow camera when prompted.
+      </p>
+    </div>
+  </div>
+
+  <!-- QR scanner fullscreen overlay (mobile) -->
+  <div class="scanner-overlay" id="scanner-overlay">
+    <div class="scanner-top">
+      <h2>Scan shelf QR</h2>
+      <button class="scanner-close" onclick="closeScanner()">Close</button>
+    </div>
+    <div id="qr-reader"></div>
+    <div class="scanner-hint">Point your camera at the ESP32 ID QR code on the shelf label.</div>
+  </div>
+
+  <div class="toast" id="toast"></div>
 
   <script>
     const tableWrapEl = document.getElementById('table-wrap');
@@ -152,24 +376,124 @@
     const pressTotalEl = document.getElementById('press-total');
     const onCountEl = document.getElementById('on-count');
     const liveEl = document.getElementById('live');
+    const liveMobileEl = document.getElementById('live-mobile');
+    const countMobileEl = document.getElementById('count-mobile');
+    const onCountMobileEl = document.getElementById('on-count-mobile');
+    const lastScanEl = document.getElementById('last-scan');
+    const lastScanIeeeEl = document.getElementById('last-scan-ieee');
+    const lastScanResultEl = document.getElementById('last-scan-result');
+    const toastEl = document.getElementById('toast');
+    const mobileUrlEl = document.getElementById('mobile-url');
+    const secureWarningEl = document.getElementById('secure-warning');
+    const httpsLinkEl = document.getElementById('https-link');
 
-    function render(data) {
-      if (data.serial_connected === false) {
-        const hint = data.backend === 'zigbee2mqtt'
-          ? 'Zigbee2MQTT offline — start broker + Zigbee2MQTT with SONOFF dongle'
-          : 'coordinator not on USB — plug coordinator board into Mac (not shelf)';
-        liveEl.textContent = hint;
-        liveEl.className = 'status-pill';
-      } else {
-        liveEl.textContent = 'live';
-        liveEl.className = 'status-pill live';
+    let html5QrCode = null;
+    let scannerBusy = false;
+    let toastTimer = null;
+    let latestNodes = [];
+    let phoneUrl = null;
+
+    function cameraSupported() {
+      return !!(window.isSecureContext && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    }
+
+    function updateMobileAccessUi(info) {
+      const port = info?.port || location.port || '8080';
+      const lanIp = info?.lan_ip || location.hostname;
+      phoneUrl = info?.phone_url || `https://${lanIp}:${port}`;
+      if (mobileUrlEl) mobileUrlEl.textContent = phoneUrl;
+      if (httpsLinkEl) {
+        httpsLinkEl.href = phoneUrl;
+        httpsLinkEl.textContent = phoneUrl;
+      }
+      const needsHttps = !window.isSecureContext;
+      if (secureWarningEl) secureWarningEl.classList.toggle('visible', needsHttps);
+      const scanBtn = document.getElementById('scan-btn');
+      if (scanBtn && needsHttps) scanBtn.title = 'Open the HTTPS link first';
+    }
+
+    async function loadMobileInfo() {
+      try {
+        const res = await fetch('/api/mobile-info');
+        updateMobileAccessUi(await res.json());
+      } catch (_) {
+        updateMobileAccessUi(null);
+      }
+    }
+
+    function parseIeeeFromQr(text) {
+      const raw = (text || '').trim();
+      if (!raw) return null;
+
+      try {
+        const json = JSON.parse(raw);
+        if (json.ieee) return parseIeeeFromQr(String(json.ieee));
+        if (json.addr) return parseIeeeFromQr(String(json.addr));
+        if (json.id) return parseIeeeFromQr(String(json.id));
+      } catch (_) { /* not JSON */ }
+
+      const hexMatch = raw.match(/0x([0-9a-f]{16})/i);
+      if (hexMatch) return `0x${hexMatch[1].toLowerCase()}`;
+
+      const bareHex = raw.match(/^([0-9a-f]{16})$/i);
+      if (bareHex) return `0x${bareHex[1].toLowerCase()}`;
+
+      const mac8 = raw.match(/(?:[0-9a-f]{2}:){7}[0-9a-f]{2}/i);
+      if (mac8) {
+        const parts = mac8[0].toLowerCase().split(':');
+        return `0x${parts.join('')}`;
       }
 
-      const nodes = data.nodes || [];
+      const mac6 = raw.match(/(?:[0-9a-f]{2}:){5}[0-9a-f]{2}/i);
+      if (mac6) {
+        const parts = mac6[0].toLowerCase().split(':');
+        return `0x${parts.slice(0, 3).join('')}fffe${parts.slice(3).join('')}`;
+      }
+
+      return null;
+    }
+
+    function showToast(message, isError = false) {
+      toastEl.textContent = message;
+      toastEl.classList.toggle('error', isError);
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3200);
+    }
+
+    function setLiveStatus(text, isLive) {
+      [liveEl, liveMobileEl].forEach(el => {
+        if (!el) return;
+        el.textContent = text;
+        el.className = isLive ? 'status-pill live' : 'status-pill';
+      });
+    }
+
+    function render(data) {
+      latestNodes = data.nodes || [];
+
+      if (data.serial_connected === false) {
+        const hint = data.backend === 'zigbee2mqtt'
+          ? 'Zigbee2MQTT offline'
+          : 'Coordinator offline';
+        setLiveStatus(hint, false);
+      } else {
+        setLiveStatus('live', true);
+      }
+
+      const nodes = latestNodes;
       const onlineNodes = nodes.filter(n => n.online);
-      countEl.textContent = data.connected_count ?? onlineNodes.length;
-      pressTotalEl.textContent = data.total_press_count ?? nodes.reduce((sum, n) => sum + (n.press_count || 0), 0);
-      onCountEl.textContent = onlineNodes.filter(n => n.state === 1).length;
+      const connected = data.connected_count ?? onlineNodes.length;
+      const onCount = onlineNodes.filter(n => n.state === 1).length;
+      const pressTotal = data.total_press_count ?? nodes.reduce((sum, n) => sum + (n.press_count || 0), 0);
+
+      if (countEl) countEl.textContent = connected;
+      if (pressTotalEl) pressTotalEl.textContent = pressTotal;
+      if (onCountEl) onCountEl.textContent = onCount;
+      if (countMobileEl) countMobileEl.textContent = connected;
+      if (onCountMobileEl) onCountMobileEl.textContent = onCount;
+
+      if (!tableWrapEl) return;
 
       if (!nodes.length) {
         tableWrapEl.innerHTML = '<div class="empty">No shelves discovered yet. Power on shelf boards near the coordinator.</div>';
@@ -204,18 +528,23 @@
     }
 
     async function refresh() {
-      liveEl.textContent = 'scanning...';
-      liveEl.className = 'status-pill';
+      setLiveStatus('scanning...', false);
       const res = await fetch('/api/scan', { method: 'POST' });
       render(await res.json());
     }
 
     async function setNode(addr, state) {
-      await fetch(`/api/nodes/${encodeURIComponent(addr)}/state`, {
+      const res = await fetch(`/api/nodes/${encodeURIComponent(addr)}/state`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ state }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed (${res.status})`);
+      }
+      render(await res.json());
+      return res;
     }
 
     async function setGroup(state) {
@@ -232,24 +561,104 @@
       render(await res.json());
     }
 
+    async function activateShelfFromQr(decodedText) {
+      const ieee = parseIeeeFromQr(decodedText);
+      if (!ieee) {
+        showToast('Invalid QR — expected ESP32 IEEE address', true);
+        return;
+      }
+
+      const node = latestNodes.find(n => n.addr.toLowerCase() === ieee.toLowerCase());
+      if (node && !node.online) {
+        showToast('Shelf is offline — check power and Zigbee link', true);
+        return;
+      }
+
+      try {
+        await closeScanner();
+        await setNode(ieee, 1);
+        const shelfLabel = node ? `Shelf ${node.shelf_id}` : ieee;
+        lastScanEl.classList.add('visible');
+        lastScanIeeeEl.textContent = ieee;
+        lastScanResultEl.textContent = `Light ON — ${shelfLabel}`;
+        showToast(`Light ON — ${shelfLabel}`);
+      } catch (err) {
+        showToast(err.message || 'Failed to turn on light', true);
+      }
+    }
+
+    async function openScanner() {
+      if (typeof Html5Qrcode === 'undefined') {
+        showToast('Scanner library failed to load', true);
+        return;
+      }
+      if (!cameraSupported()) {
+        showToast(`Camera needs HTTPS — open ${phoneUrl || 'the https link below'}`, true);
+        if (secureWarningEl) secureWarningEl.classList.add('visible');
+        return;
+      }
+      if (scannerBusy) return;
+
+      scannerBusy = true;
+      document.getElementById('scanner-overlay').classList.add('open');
+      html5QrCode = new Html5Qrcode('qr-reader');
+
+      const onScan = (decodedText) => {
+        if (!scannerBusy) return;
+        scannerBusy = false;
+        activateShelfFromQr(decodedText);
+      };
+      const scanConfig = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+
+      try {
+        const cameras = await Html5Qrcode.getCameras();
+        const backCam = cameras.find(c => /back|rear|environment|wide/i.test(c.label));
+        const cameraId = backCam?.id || cameras[cameras.length - 1]?.id;
+        if (cameraId) {
+          await html5QrCode.start(cameraId, scanConfig, onScan, () => {});
+          return;
+        }
+      } catch (_) { /* fall through to facingMode */ }
+
+      try {
+        await html5QrCode.start({ facingMode: 'environment' }, scanConfig, onScan, () => {});
+      } catch (err) {
+        try {
+          await html5QrCode.start({ facingMode: 'user' }, scanConfig, onScan, () => {});
+        } catch (err2) {
+          scannerBusy = false;
+          document.getElementById('scanner-overlay').classList.remove('open');
+          const msg = err2?.message || err?.message || 'Camera unavailable';
+          showToast(msg.includes('Permission') ? 'Allow camera in browser settings' : msg, true);
+        }
+      }
+    }
+
+    async function closeScanner() {
+      scannerBusy = false;
+      document.getElementById('scanner-overlay').classList.remove('open');
+      if (html5QrCode) {
+        try {
+          await html5QrCode.stop();
+          html5QrCode.clear();
+        } catch (_) { /* already stopped */ }
+        html5QrCode = null;
+      }
+    }
+
     function connectEvents() {
       const source = new EventSource('/api/events');
-      source.onopen = () => {
-        liveEl.textContent = 'live';
-        liveEl.className = 'status-pill live';
-      };
-      source.onmessage = (event) => {
-        render(JSON.parse(event.data));
-      };
+      source.onopen = () => setLiveStatus('live', true);
+      source.onmessage = (event) => render(JSON.parse(event.data));
       source.onerror = () => {
-        liveEl.textContent = 'reconnecting...';
-        liveEl.className = 'status-pill';
+        setLiveStatus('reconnecting...', false);
         source.close();
         setTimeout(connectEvents, 2000);
       };
     }
 
     refresh();
+    loadMobileInfo();
     connectEvents();
   </script>
 </body>

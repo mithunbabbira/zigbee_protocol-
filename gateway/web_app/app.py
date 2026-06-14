@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import glob
 import json
+import socket
 import sys
 import threading
 import time
@@ -15,12 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import serial
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
+CERT_DIR = ROOT / "certs"
+DEV_SSL_KEY = CERT_DIR / "dev-key.pem"
+DEV_SSL_CERT = CERT_DIR / "dev-cert.pem"
 sys.path.insert(0, str(ROOT.parent))
 
 from protocol import (  # noqa: E402
@@ -462,6 +466,31 @@ async def api_clear_press_counts() -> dict[str, Any]:
     return bridge.snapshot()
 
 
+def _detect_lan_ip() -> str | None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except OSError:
+        return None
+
+
+@app.get("/api/mobile-info")
+async def api_mobile_info(request: Request) -> dict[str, Any]:
+    port = request.url.port or 8080
+    lan_ip = _detect_lan_ip()
+    scheme = request.url.scheme
+    phone_url = f"https://{lan_ip}:{port}" if lan_ip else None
+    return {
+        "lan_ip": lan_ip,
+        "port": port,
+        "scheme": scheme,
+        "is_secure": scheme == "https",
+        "phone_url": phone_url,
+        "camera_requires_https": True,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Shelf master web application")
     parser.add_argument(
@@ -507,8 +536,30 @@ def main() -> int:
 
     import uvicorn
 
-    print(f"Shelf master UI: http://localhost:{args.web_port}")
-    uvicorn.run(app, host=args.host, port=args.web_port, log_level="info")
+    ssl_keyfile: str | None = None
+    ssl_certfile: str | None = None
+    if DEV_SSL_KEY.is_file() and DEV_SSL_CERT.is_file():
+        ssl_keyfile = str(DEV_SSL_KEY)
+        ssl_certfile = str(DEV_SSL_CERT)
+
+    lan_ip = _detect_lan_ip()
+    if ssl_certfile:
+        print(f"Shelf master UI: https://localhost:{args.web_port}")
+        if lan_ip:
+            print(f"Phone (QR scan):  https://{lan_ip}:{args.web_port}")
+            print("Accept the self-signed certificate warning on first visit.")
+    else:
+        print(f"Shelf master UI: http://localhost:{args.web_port}")
+        print("Mobile QR scan needs HTTPS — run: ./scripts/ensure_dev_ssl.sh")
+
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.web_port,
+        log_level="info",
+        ssl_keyfile=ssl_keyfile,
+        ssl_certfile=ssl_certfile,
+    )
     return 0
 
 
