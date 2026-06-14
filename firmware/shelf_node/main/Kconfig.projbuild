@@ -1,0 +1,24 @@
+menu "Shelf Zigbee Node"
+
+    choice SHELF_DEVICE_ROLE
+        prompt "Zigbee device role"
+        default SHELF_DEVICE_ROLE_END_DEVICE
+        help
+            Router: relays traffic for other shelves (pick one unit if the dongle is far away).
+            End device: lower power, joins through a router or the coordinator directly.
+
+        config SHELF_DEVICE_ROLE_ROUTER
+            bool "Router (ZR)"
+
+        config SHELF_DEVICE_ROLE_END_DEVICE
+            bool "End device (ZED)"
+    endchoice
+
+    config SHELF_JOIN_ALL_CHANNELS
+        bool "Scan all Zigbee channels when joining"
+        default y
+        help
+            Required when joining an external coordinator (e.g. SONOFF ZBDongle-E via Zigbee2MQTT).
+            Disable to lock joins to channel 15 only (legacy ESP32 coordinator bench setup).
+
+endmenu

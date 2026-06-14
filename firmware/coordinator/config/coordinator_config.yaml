@@ -1,0 +1,27 @@
+# Put-to-Light Coordinator — runtime configuration
+# Loaded by Pi backend / coordinator firmware at startup.
+# No shelf business mappings here.
+
+role: coordinator                    # Zigbee network coordinator (ZC)
+pan_id: 0x1A2B                       # Fixed PAN; all nodes must match after factory reset
+channel: 15                          # Single channel (11–26); lock for fast rejoin
+extended_pan_id: "0x1122334455667788"  # Stable network identity across reboots
+permit_join: true                    # Allow new nodes to join when provisioning
+permit_join_duration_sec: 180        # Auto-close join window after commissioning
+max_children: 32                     # Max direct child devices (ZED + ZR)
+network_open_duration_sec: 180       # Alias used by firmware open-network calls
+heartbeat_timeout_sec: 90            # Mark node offline if no heartbeat in this window
+install_code_policy: false           # Open joining (warehouse provisioning model)
+
+# Zigbee stack tuning (Espressif SDK)
+memory:
+  buffer_pool_size: 200
+  neighbor_table_size: 256
+  route_table_size: 64
+  bind_table_size: 32
+
+# Pi gateway transport (USB serial to Raspberry Pi)
+gateway:
+  transport: usb_serial_jtag
+  baudrate: 115200
+  protocol: json_lines               # One JSON object per line (replaces legacy text protocol)

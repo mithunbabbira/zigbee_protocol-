@@ -7,3 +7,11 @@ dependencies.lock
 .DS_Store
 __pycache__/
 *.pyc
+gateway/zigbee2mqtt-runtime/
+gateway/zigbee2mqtt/external_converters/node_modules
+gateway/zigbee2mqtt/log.log
+gateway/zigbee2mqtt/log/
+gateway/zigbee2mqtt/coordinator_backup.json
+gateway/zigbee2mqtt/state.json
+gateway/zigbee2mqtt/database.db
+gateway/zigbee2mqtt/migration-*.log

@@ -1,0 +1,22 @@
+# Put-to-Light Shelf Node — hardware/runtime configuration
+# No shelf_id, shelf_name, rack_name, or warehouse mappings.
+
+role: end_device                     # end_device | router (use router for at most one range extender)
+led_gpio: 8                          # WS2812 data pin on ESP32-C6-DevKitM-1 (status_led component)
+button_gpio: 9                       # BOOT button GPIO on ESP32-C6-DevKitM-1
+heartbeat_interval_sec: 30           # Periodic NODE_ONLINE/HEARTBEAT upstream interval
+retry_count: 3                       # ZCL command / report retries before giving up
+keep_alive_ms: 3000                  # ZED parent keep-alive (Espressif ed_config.keep_alive)
+join_channel_mask: 15                # Single channel when coordinator channel is fixed
+rejoin_on_boot: true                 # Network steering after reboot if already commissioned
+
+# Zigbee endpoint layout (match Espressif HA examples)
+endpoint_id: 10                      # HA On/Off light server endpoint
+profile_id: 0x0104                   # HA profile
+manufacturer_name: "SHELF_MGMT"
+model_identifier: "SHELF-NODE"
+
+# Cluster IDs (application protocol — see architecture doc)
+clusters:
+  on_off: 0x0006                     # Standard HA genOnOff for LED control
+  shelf_events: 0xFC01               # Custom cluster for BUTTON_PRESSED, HEARTBEAT

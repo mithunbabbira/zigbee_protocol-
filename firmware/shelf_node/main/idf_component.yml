@@ -13,3 +13,5 @@ dependencies:
     path: "../../../components/alarm_timer"
   shelf_zigbee:
     path: "../../../components/shelf_zigbee"
+  shelf_protocol:
+    path: "../../../components/shelf_protocol"

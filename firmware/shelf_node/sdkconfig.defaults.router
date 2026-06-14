@@ -1,0 +1,3 @@
+# Router profile (one unit for range extension)
+CONFIG_SHELF_DEVICE_ROLE_ROUTER=y
+# CONFIG_SHELF_DEVICE_ROLE_END_DEVICE is not set

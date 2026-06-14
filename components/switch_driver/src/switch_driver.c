@@ -61,7 +61,7 @@ switch_driver_handle_t switch_driver_init(const switch_driver_config_t *config)
         .mode         = GPIO_MODE_INPUT,
         .pull_up_en   = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_LOW_LEVEL,
+        .intr_type    = GPIO_INTR_NEGEDGE,
     };
 
     if (gpio_config(&io_conf) != ESP_OK) {

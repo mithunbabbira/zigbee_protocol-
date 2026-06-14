@@ -1,0 +1,3 @@
+# End device profile for SONOFF dongle / Zigbee2MQTT
+CONFIG_SHELF_DEVICE_ROLE_END_DEVICE=y
+# CONFIG_SHELF_DEVICE_ROLE_ROUTER is not set

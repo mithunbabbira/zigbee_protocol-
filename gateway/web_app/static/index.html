@@ -136,7 +136,10 @@
 
     function render(data) {
       if (data.serial_connected === false) {
-        liveEl.textContent = 'coordinator not on USB — plug coordinator board into Mac (not shelf)';
+        const hint = data.backend === 'zigbee2mqtt'
+          ? 'Zigbee2MQTT offline — start broker + Zigbee2MQTT with SONOFF dongle'
+          : 'coordinator not on USB — plug coordinator board into Mac (not shelf)';
+        liveEl.textContent = hint;
         liveEl.className = 'status-pill';
       } else {
         liveEl.textContent = 'live';
@@ -157,7 +160,7 @@
         <div class="node ${node.online ? '' : 'offline'}">
           <div>
             <div class="addr">${node.addr}</div>
-            <div class="stat-label">${node.online ? 'Shelf router' : 'Offline — not on network'}</div>
+            <div class="stat-label">${node.friendly_name ? node.friendly_name + ' · ' : ''}${node.online ? 'Shelf router' : 'Offline — not on network'}</div>
           </div>
           <span class="badge ${node.online ? (node.state ? 'on' : 'off') : 'offline'}">
             <span class="dot"></span>${node.online ? (node.state ? 'ON' : 'OFF') : 'OFFLINE'}

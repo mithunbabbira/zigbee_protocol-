@@ -23,9 +23,29 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT.parent))
 
-from protocol import GatewayEvent, format_group_send, format_node_send, parse_gateway_line  # noqa: E402
+from protocol import (  # noqa: E402
+    GatewayEvent,
+    format_blink_led,
+    format_permit_join,
+    format_turn_led_off,
+    format_turn_led_on,
+    normalize_ieee_address,
+    parse_gateway_line,
+)
 
-DEFAULT_GROUP_ID = 0x0001
+try:
+    from mqtt_bridge import MqttBridge  # noqa: E402
+except ImportError:
+    sys.path.insert(0, str(ROOT.parent))
+    from mqtt_bridge import MqttBridge  # noqa: E402
+
+try:
+    from dongle import discover_zigbee_dongle_port  # noqa: E402
+except ImportError:
+    sys.path.insert(0, str(ROOT.parent))
+    from dongle import discover_zigbee_dongle_port  # noqa: E402
+
+DEFAULT_GROUP_ID = 0x0001  # legacy constant retained for API compatibility
 
 
 def probe_port_role(port: str) -> str | None:
@@ -98,7 +118,7 @@ class SerialBridge:
 
     def request_node_scan(self) -> None:
         try:
-            self.send_line("NODE_SCAN\n")
+            self.send_line(format_permit_join(180))
         except (RuntimeError, serial.SerialException, OSError):
             pass
 
@@ -128,7 +148,7 @@ class SerialBridge:
         self._try_connect()
         self._thread = threading.Thread(target=self._reader_loop, name="serial-reader", daemon=True)
         self._thread.start()
-        threading.Thread(target=self._scan_loop, name="serial-scan", daemon=True).start()
+        threading.Thread(target=self._heartbeat_watchdog, name="serial-watchdog", daemon=True).start()
         threading.Thread(target=self._reconnect_loop, name="serial-reconnect", daemon=True).start()
 
     def stop(self) -> None:
@@ -186,6 +206,7 @@ class SerialBridge:
     def snapshot(self) -> dict[str, Any]:
         nodes = sorted(self._nodes.values(), key=lambda n: n.addr)
         return {
+            "backend": "serial",
             "serial_connected": self.serial_connected,
             "coordinator_port": self.port,
             "serial_error": self.serial_error,
@@ -227,33 +248,33 @@ class SerialBridge:
         raise RuntimeError(f"Serial write failed: {last_error}")
 
     def set_node_state(self, addr: str, state: int) -> None:
-        if not addr.startswith("0x"):
-            addr = f"0x{int(addr, 16):04x}"
-        self.send_line(format_node_send(addr, state))
-        node = self._nodes.get(addr)
-        if node is None:
-            node = ShelfNode(addr=addr, state=state, online=True, last_seen=time.time())
-            self._nodes[addr] = node
-        else:
+        ieee = normalize_ieee_address(addr) or addr
+        line = format_turn_led_on(ieee) if state else format_turn_led_off(ieee)
+        self.send_line(line)
+        node = self._nodes.get(ieee)
+        if node is not None:
             node.state = state
-            node.online = True
             node.last_seen = time.time()
         self._publish()
 
     def set_group_state(self, state: int) -> None:
-        self.send_line(format_group_send(DEFAULT_GROUP_ID, state))
-        for node in self._nodes.values():
+        for node in list(self._nodes.values()):
             if node.online:
-                node.state = state
-                node.last_seen = time.time()
-        self._publish()
+                self.set_node_state(node.addr, state)
 
-    def _scan_loop(self) -> None:
-        time.sleep(2)
+    def _heartbeat_watchdog(self) -> None:
+        """Mark nodes offline when no heartbeat/state for 90 s."""
         while self._running:
-            if self.serial_connected:
-                self.run_node_scan(wait_seconds=4.0)
-            time.sleep(12)
+            time.sleep(15)
+            now = time.time()
+            changed = False
+            with self._lock:
+                for node in self._nodes.values():
+                    if node.online and now - node.last_seen > 90:
+                        node.online = False
+                        changed = True
+            if changed:
+                self._publish()
 
     def _reader_loop(self) -> None:
         buffer = ""
@@ -283,23 +304,44 @@ class SerialBridge:
     def _apply_event(self, event: GatewayEvent) -> None:
         now = time.time()
         if event.kind == "join":
+            ieee = normalize_ieee_address(event.addr) or event.addr
             if self._scan_in_progress:
-                self._scan_seen_addrs.add(event.addr)
-            node = self._nodes.get(event.addr)
+                self._scan_seen_addrs.add(ieee)
+            node = self._nodes.get(ieee)
             if node is None:
-                self._nodes[event.addr] = ShelfNode(addr=event.addr, state=0, online=True, last_seen=now)
+                self._nodes[ieee] = ShelfNode(addr=ieee, state=0, online=True, last_seen=now)
             else:
                 node.online = True
                 node.last_seen = now
         elif event.kind == "leave":
-            node = self._nodes.get(event.addr)
+            ieee = normalize_ieee_address(event.addr) or event.addr
+            node = self._nodes.get(ieee)
             if node:
                 node.online = False
                 node.last_seen = now
-        elif event.kind == "state" and event.state is not None:
-            node = self._nodes.get(event.addr)
+        elif event.kind == "button":
+            ieee = normalize_ieee_address(event.addr) or event.addr
+            node = self._nodes.get(ieee)
             if node is None:
-                self._nodes[event.addr] = ShelfNode(addr=event.addr, state=event.state, online=True, last_seen=now)
+                node = ShelfNode(addr=ieee, state=1, online=True, last_seen=now)
+                self._nodes[ieee] = node
+            else:
+                node.state = 1 if node.state == 0 else 0
+                node.online = True
+                node.last_seen = now
+        elif event.kind == "heartbeat":
+            ieee = normalize_ieee_address(event.addr) or event.addr
+            node = self._nodes.get(ieee)
+            if node is None:
+                self._nodes[ieee] = ShelfNode(addr=ieee, state=0, online=True, last_seen=now)
+            else:
+                node.online = True
+                node.last_seen = now
+        elif event.kind == "state" and event.state is not None:
+            ieee = normalize_ieee_address(event.addr) or event.addr
+            node = self._nodes.get(ieee)
+            if node is None:
+                self._nodes[ieee] = ShelfNode(addr=ieee, state=event.state, online=True, last_seen=now)
             else:
                 node.state = event.state
                 node.online = True
@@ -313,7 +355,7 @@ class SerialBridge:
             asyncio.run_coroutine_threadsafe(queue.put(payload), self._loop)
 
 
-bridge: SerialBridge | None = None
+bridge: SerialBridge | MqttBridge | None = None
 app = FastAPI(title="Shelf Master")
 static_dir = ROOT / "static"
 if static_dir.is_dir():
@@ -400,24 +442,45 @@ async def api_set_group_state(body: GroupStateBody) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Shelf master web application")
     parser.add_argument(
+        "--backend",
+        choices=("mqtt", "serial"),
+        default="serial",
+        help="Coordinator backend: serial (ESP32-C6 coordinator JSON gateway) or mqtt (legacy Zigbee2MQTT)",
+    )
+    parser.add_argument(
         "--port",
         default=None,
-        help="Coordinator serial port (auto-detected if omitted)",
+        help="Coordinator serial port (serial backend only; auto-detected if omitted)",
     )
     parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--mqtt-host", default="127.0.0.1")
+    parser.add_argument("--mqtt-port", type=int, default=1883)
+    parser.add_argument("--mqtt-group", default="shelves", help="Zigbee2MQTT group friendly name")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--web-port", type=int, default=8080)
     args = parser.parse_args()
 
-    port = args.port or discover_coordinator_port()
-    if port is None:
-        port = args.port or "/dev/cu.usbmodem1201"
-        print("Coordinator not found yet — plug coordinator USB into Mac; will auto-reconnect.")
-    else:
-        print(f"Coordinator serial: {port}")
-
     global bridge
-    bridge = SerialBridge(port, args.baud)
+    if args.backend == "mqtt":
+        dongle = discover_zigbee_dongle_port()
+        if dongle:
+            print(f"Zigbee dongle detected: {dongle} (used by Zigbee2MQTT, not this app directly)")
+        else:
+            print("Zigbee dongle not detected on USB — start Zigbee2MQTT after plugging in SONOFF dongle.")
+        bridge = MqttBridge(
+            mqtt_host=args.mqtt_host,
+            mqtt_port=args.mqtt_port,
+            group_friendly_name=args.mqtt_group,
+        )
+        print(f"MQTT backend: mqtt://{args.mqtt_host}:{args.mqtt_port}")
+    else:
+        port = args.port or discover_coordinator_port()
+        if port is None:
+            port = args.port or "/dev/cu.usbmodem1201"
+            print("Coordinator not found yet — plug coordinator USB into Mac; will auto-reconnect.")
+        else:
+            print(f"Coordinator serial: {port}")
+        bridge = SerialBridge(port, args.baud)
 
     import uvicorn
 
